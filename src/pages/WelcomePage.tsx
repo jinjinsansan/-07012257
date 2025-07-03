@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Heart } from 'lucide-react';
+import { Heart, ArrowRight } from 'lucide-react';
 
 const WelcomePage: React.FC = () => {
   const navigate = useNavigate();
@@ -38,9 +38,10 @@ const WelcomePage: React.FC = () => {
         {/* はじめるボタン */}
         <button 
           onClick={handleStart}
-          className="bg-orange-400 hover:bg-orange-500 text-white px-10 py-3 rounded-full font-jp-bold text-lg shadow-lg hover:shadow-xl transition-all duration-300"
+          className="bg-orange-400 hover:bg-orange-500 text-white px-10 py-3 rounded-full font-jp-bold text-lg shadow-lg hover:shadow-xl transition-all duration-300 flex items-center space-x-2"
         >
-          はじめる
+          <span>はじめる</span>
+          <ArrowRight className="w-5 h-5" />
         </button>
         
         {/* 協会名 */}
