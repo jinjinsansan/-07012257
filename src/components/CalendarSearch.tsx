@@ -290,6 +290,11 @@ export const useAutoSync = (): AutoSyncState => {
           
           // カウンセラーメモの処理
           if (entry.counselor_memo !== undefined || entry.counselorMemo !== undefined) {
+            formattedEntry.counselor_memo = entry.counselor_memo !== undefined ? 
+                                          entry.counselor_memo : 
+                                          entry.counselorMemo || '';
+          }
+          
           // 表示設定の処理
           if (entry.is_visible_to_user !== undefined || entry.isVisibleToUser !== undefined) {
             formattedEntry.is_visible_to_user = entry.is_visible_to_user !== undefined ? 
@@ -319,9 +324,19 @@ export const useAutoSync = (): AutoSyncState => {
           }
           
           if (formattedEntry.counselor_name === null) {
+            formattedEntry.counselor_name = '';
+          }
+          
           if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
             formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
+                                              entry.assigned_counselor : 
+                                              entry.assignedCounselor || '';
+          }
+          
           if (formattedEntry.urgency_level === null) {
+            formattedEntry.urgency_level = 0;
+          }
+          
           // is_visible_to_userがNULLの場合はfalseに設定
           if (formattedEntry.is_visible_to_user === null) {
             formattedEntry.is_visible_to_user = false;
