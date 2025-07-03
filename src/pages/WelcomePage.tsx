@@ -1,7 +1,14 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Heart } from 'lucide-react';
 
 const WelcomePage: React.FC = () => {
+  const navigate = useNavigate();
+
+  const handleStart = () => {
+    navigate('/first-steps');
+  };
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center relative overflow-hidden bg-amber-50">
       {/* 装飾的な円形要素 */}
@@ -30,10 +37,7 @@ const WelcomePage: React.FC = () => {
         
         {/* はじめるボタン */}
         <button 
-          onClick={() => {
-            const event = new CustomEvent('startApp');
-            window.dispatchEvent(event);
-          }}
+          onClick={handleStart}
           className="bg-orange-400 hover:bg-orange-500 text-white px-10 py-3 rounded-full font-jp-bold text-lg shadow-lg hover:shadow-xl transition-all duration-300"
         >
           はじめる
