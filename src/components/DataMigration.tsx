@@ -310,45 +310,32 @@ export const useAutoSync = (): AutoSyncState => {
           }
           
           // 担当カウンセラーの処理
-          if (entry.assigned_counselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assigned_counselor;
-          } else if (entry.assignedCounselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assignedCounselor;
+          if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
+                                               entry.assigned_counselor : 
+                                               entry.assignedCounselor || '';
           }
           
           // 緊急度の処理
-          if (entry.urgency_level !== undefined) {
-            formattedEntry.urgency_level = entry.urgency_level;
-          } else if (entry.urgencyLevel !== undefined) {
-            formattedEntry.urgency_level = entry.urgencyLevel;
+          if (entry.urgency_level !== undefined || entry.urgencyLevel !== undefined) {
+            formattedEntry.urgency_level = entry.urgency_level !== undefined ? 
+                                          entry.urgency_level : 
+                                          entry.urgencyLevel || '';
+          }
+          
+          // NULL値を空文字列に変換
+          if (formattedEntry.counselor_memo === null) {
+            formattedEntry.counselor_memo = '';
           }
           
           if (formattedEntry.counselor_name === null) {
             formattedEntry.counselor_name = '';
           }
           
-          if (formattedEntry.counselor_memo === null) {
-            formattedEntry.counselor_memo = '';
-          }
-          
           if (formattedEntry.assigned_counselor === null) {
             formattedEntry.assigned_counselor = '';
           }
           
-          // 緊急度の値を検証
-          if (formattedEntry.urgency_level !== undefined) {
-            // 許可された値のみを設定（high, medium, low、または空文字列）
-            if (formattedEntry.urgency_level !== 'high' && 
-                formattedEntry.urgency_level !== 'medium' && 
-                formattedEntry.urgency_level !== 'low' && 
-                formattedEntry.urgency_level !== '') {
-              // 無効な値の場合は空文字列に設定
-              console.warn(`無効な緊急度の値: ${formattedEntry.urgency_level}、空に設定します`);
-              formattedEntry.urgency_level = '';
-            }
-          }
-          
-          // NULL値を空文字列に変換
           if (formattedEntry.urgency_level === null) {
             formattedEntry.urgency_level = '';
           }
