@@ -246,7 +246,7 @@ export const useAutoSync = (): AutoSyncState => {
           // 必須フィールドのみを含める
           const formattedEntry = {
             id: entryId,
-            user_id: userId,
+            user_id: userId, // 常に有効なuser_idを設定
             date: entry.date,
             emotion: entry.emotion,
             event: entry.event || '',
@@ -289,55 +289,51 @@ export const useAutoSync = (): AutoSyncState => {
           }
           
           // カウンセラーメモの処理
-          if (entry.counselor_memo !== undefined) {
-            formattedEntry.counselor_memo = entry.counselor_memo;
-          } else if (entry.counselorMemo !== undefined) {
-            formattedEntry.counselor_memo = entry.counselorMemo || '';
+          if (entry.counselor_memo !== undefined || entry.counselorMemo !== undefined) {
+            formattedEntry.counselor_memo = entry.counselor_memo !== undefined ? 
+                                           entry.counselor_memo : 
+                                           entry.counselorMemo || '';
           }
           
           // 表示設定の処理
-          if (entry.is_visible_to_user !== undefined) {
-            formattedEntry.is_visible_to_user = entry.is_visible_to_user;
-          } else if (entry.isVisibleToUser !== undefined) {
-            formattedEntry.is_visible_to_user = entry.isVisibleToUser;
-          } else {
-            formattedEntry.is_visible_to_user = false;
+          if (entry.is_visible_to_user !== undefined || entry.isVisibleToUser !== undefined) {
+            formattedEntry.is_visible_to_user = entry.is_visible_to_user !== undefined ? 
+                                               entry.is_visible_to_user : 
+                                               entry.isVisibleToUser || false;
           }
           
           // カウンセラー名の処理
-          if (entry.counselor_name !== undefined) {
-            formattedEntry.counselor_name = entry.counselor_name;
-          } else if (entry.counselorName !== undefined) {
-            formattedEntry.counselor_name = entry.counselorName;
+          if (entry.counselor_name !== undefined || entry.counselorName !== undefined) {
+            formattedEntry.counselor_name = entry.counselor_name !== undefined ? 
+                                           entry.counselor_name : 
+                                           entry.counselorName || '';
           }
           
           // 担当カウンセラーの処理
-          if (entry.assigned_counselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assigned_counselor;
-          } else if (entry.assignedCounselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assignedCounselor;
+          if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
+                                               entry.assigned_counselor : 
+                                               entry.assignedCounselor || '';
           }
           
           // 緊急度の処理
-          if (entry.urgency_level !== undefined) {
-            formattedEntry.urgency_level = entry.urgency_level;
-          } else if (entry.urgencyLevel !== undefined) {
-            formattedEntry.urgency_level = entry.urgencyLevel;
+          if (entry.urgency_level !== undefined || entry.urgencyLevel !== undefined) {
+            // 緊急度の値を取得
+            let urgencyValue = entry.urgency_level !== undefined ? 
+                             entry.urgency_level : 
+                             entry.urgencyLevel || '';
+
+            // 許可された値のみを設定（high, medium, low、または空文字列）
+            if (urgencyValue !== 'high' && urgencyValue !== 'medium' && urgencyValue !== 'low' && urgencyValue !== '') {
+              // 無効な値の場合は空文字列に設定
+              console.warn(`無効な緊急度の値: ${urgencyValue}、空に設定します`);
+              urgencyValue = '';
+            }
+            
+            formattedEntry.urgency_level = urgencyValue;
           }
           
           // NULL値を空文字列に変換
-          if (formattedEntry.counselor_memo === null) {
-            formattedEntry.counselor_memo = '';
-          }
-          
-          if (formattedEntry.counselor_name === null) {
-            formattedEntry.counselor_name = '';
-          }
-          
-          if (formattedEntry.assigned_counselor === null) {
-            formattedEntry.assigned_counselor = '';
-          }
-          
           if (formattedEntry.urgency_level === null) {
             formattedEntry.urgency_level = '';
           }
@@ -353,8 +349,8 @@ export const useAutoSync = (): AutoSyncState => {
       // 日記データを同期
       const { success, error } = await diaryService.syncDiaries(userId, formattedEntries);
       
-      // 同期結果をログに出力
-      console.log('同期結果:', success ? '成功' : '失敗', error || '');
+      // 同期結果の詳細をログに出力
+      console.log('同期結果:', success ? '成功' : '失敗', error || '', 'データ件数:', formattedEntries.length, 'ユーザーID:', userId);
       
       if (!success) {
         console.error('同期エラー:', error);

@@ -1,465 +1,503 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Search, Eye, Trash2, Filter, RefreshCw } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { useState, useEffect, useCallback } from 'react';
+import { supabase, userService, diaryService } from '../lib/supabase';
+import { getCurrentUser } from '../lib/deviceAuth';
+import { formatDiaryForSupabase } from '../lib/utils';
 
-interface JournalEntry {
-  id: string;
-  date: string;
-  emotion: string;
-  event: string;
-  realization: string;
-  selfEsteemScore?: number;
-  worthlessnessScore?: number;
-  counselorMemo?: string;
-  isVisibleToUser?: boolean;
-  counselorName?: string;
-  assignedCounselor?: string;
-  urgencyLevel?: string;
-  user?: {
-    line_username: string;
-  };
-  syncStatus?: string;
+interface AutoSyncState {
+  isAutoSyncEnabled: boolean;
+  isSyncing: boolean;
+  lastSyncTime: string | null;
+  error: string | null;
+  currentUser: any | null;
+  triggerManualSync: () => Promise<boolean>;
+  syncDeleteDiary: (diaryId: string) => Promise<boolean>;
+  syncBulkDeleteDiaries: (diaryIds: string[]) => Promise<boolean>;
 }
 
-interface CalendarSearchProps {
-  onViewEntry: (entry: JournalEntry) => void;
-  onDeleteEntry?: (entryId: string) => void;
-}
-
-const CalendarSearch: React.FC<CalendarSearchProps> = ({ onViewEntry, onDeleteEntry }) => {
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [filteredEntries, setFilteredEntries] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [calendarData, setCalendarData] = useState<{[key: string]: number}>({});
-
+export const useAutoSync = (): AutoSyncState => {
+  const [isAutoSyncEnabled, setIsAutoSyncEnabled] = useState<boolean>(true);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(localStorage.getItem('last_sync_time'));
+  const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
+  const [processedEntryIds, setProcessedEntryIds] = useState<Set<string>>(new Set());
+  
+  // 自動同期設定の読み込み
   useEffect(() => {
-    loadEntries();
-  }, []);
-
-  useEffect(() => {
-    if (selectedDate) {
-      filterEntriesByDate(selectedDate);
+    const autoSyncSetting = localStorage.getItem('auto_sync_enabled');
+    setIsAutoSyncEnabled(autoSyncSetting !== 'false'); // デフォルトはtrue
+    
+    // 最後の同期時間を読み込み
+    const savedLastSyncTime = localStorage.getItem('last_sync_time');
+    if (savedLastSyncTime) {
+      setLastSyncTime(savedLastSyncTime);
     }
-  }, [selectedDate, entries]);
-
-  const loadEntries = async () => {
-    setLoading(true);
+  }, []);
+  
+  // ユーザー情報の初期化
+  useEffect(() => {
+    initializeUser();
+    
+    // アプリ起動時に自動的に同期を実行（少し遅延させる）
+    setTimeout(() => {
+      if (isAutoSyncEnabled && !isSyncing) {
+        syncData().catch(error => {
+          console.error('初期同期エラー:', error);
+        });
+      }
+    }, 3000);
+  }, []);
+  
+  // 自動同期の設定
+  useEffect(() => {
+    if (!isAutoSyncEnabled || !supabase) return;
+    
+    // 5分ごとに自動同期を実行
+    const interval = setInterval(() => {
+      if (!isSyncing) {
+        syncData();
+      }
+    }, 5 * 60 * 1000); // 5分 = 300,000ミリ秒
+    
+    return () => clearInterval(interval);
+  }, [isAutoSyncEnabled, isSyncing]);
+  
+  // ユーザー情報の初期化
+  const initializeUser = useCallback(async () => {
+    if (!supabase) {
+      console.log('ローカルモードで動作中: Supabase接続なし、同期は無効');
+      // ローカルモードでも、ユーザー名が設定されていれば現在のユーザーとして扱う
+      const lineUsername = localStorage.getItem('line-username');
+      if (lineUsername) {
+        setCurrentUser({ id: 'local-user', line_username: lineUsername });
+      }
+      return;
+    }
+    
     try {
-      console.log('カレンダー検索: データを読み込みます');
-      // Supabaseから直接日記データを取得
-      if (supabase) {
+      // 現在のユーザーを取得
+      const user = getCurrentUser();
+      // ユーザー情報がない場合はローカルストレージから取得
+      const lineUsername = user?.lineUsername || localStorage.getItem('line-username');
+      
+      if (!lineUsername || lineUsername.trim() === '') {
+        console.error('ユーザーがログインしていないか、ユーザー名がありません');
+        setError('ユーザー名が設定されていません');
+        return null;
+      }
+      
+      // Supabaseでユーザーを作成または取得
+      const supabaseUser = await userService.createOrGetUser(lineUsername);
+      if (supabaseUser) {
+        setCurrentUser(supabaseUser);
+        console.log('ユーザー初期化完了:', supabaseUser.line_username, 'ID:', supabaseUser.id);
+        return supabaseUser;
+      }
+      return null;
+    } catch (error) {
+      console.error('ユーザー初期化エラー:', error);
+      setError('ユーザー初期化に失敗しました');
+      return null;
+    }
+  }, []);
+  
+  // データ同期処理
+  const syncData = useCallback(async (): Promise<boolean> => {
+    if (!supabase) {
+      console.log('ローカルモードで動作中: Supabase接続なし、同期をスキップします');
+      return false;
+    }
+    
+    if (isSyncing) {
+      console.log('既に同期中です');
+      return false;
+    }
+    
+    setIsSyncing(true);
+    setError(null);
+    
+    try {
+      // 現在のユーザーを取得
+      const user = getCurrentUser();
+      // ユーザー情報がない場合はローカルストレージから取得
+      const lineUsername = user?.lineUsername || localStorage.getItem('line-username') || 'Unknown User';
+      
+      if (!lineUsername || lineUsername === 'Unknown User') {
+        console.warn('ユーザー名が設定されていないか、デフォルト値です');
+      }
+      
+      console.log('同期を開始します。ユーザー:', lineUsername);
+      
+      // ユーザーIDを取得
+      let userId = currentUser?.id;
+      
+      // ユーザーIDがない場合は初期化
+      if (!userId) {
+        const supabaseUser = await userService.createOrGetUser(lineUsername);
+        if (!supabaseUser) {
+          console.error('ユーザーの作成に失敗しました');
+          setError('ユーザーの作成に失敗しました');
+          return false;
+        }
+        
+        userId = supabaseUser.id;
+        console.log('新しいユーザーを作成/取得しました:', lineUsername, 'ID:', userId);
+        setCurrentUser(supabaseUser);
+      }
+      
+      // UUIDの形式を検証
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(userId)) {
+        console.error('無効なユーザーID形式:', userId);
+        
+        // 無効なユーザーIDの場合は、新しいユーザーを作成して再試行
         try {
-          const { data: diaryData, error } = await supabase
-            .from('diary_entries')
-            .select(`
-              *,
-              users (
-                line_username
-              )
-            `)
-            .order('created_at', { ascending: false });
-          
-          if (error) {
-            console.error('Supabaseからの日記データ取得エラー:', error);
-            throw error;
-          } else if (diaryData && diaryData.length > 0) {
-            console.log('Supabaseから日記データを取得しました:', diaryData.length, '件');
-            
-            // データをフォーマット
-            const formattedEntries = diaryData.map(item => {
-              return {
-                id: item.id,
-                date: item.date,
-                emotion: item.emotion || '不明',
-                event: item.event || '内容なし',
-                realization: item.realization || '内容なし',
-                selfEsteemScore: item.self_esteem_score || 0,
-                worthlessnessScore: item.worthlessness_score || 0,
-                created_at: item.created_at,
-                user: item.users,
-                counselorMemo: item.counselor_memo || '',
-                isVisibleToUser: item.is_visible_to_user || false,
-                counselorName: item.counselor_name || '',
-                assignedCounselor: item.assigned_counselor || '',
-                urgencyLevel: item.urgency_level || '',
-                syncStatus: 'supabase'
-              };
-            });
-            
-            setEntries(formattedEntries);
-            
-            // カレンダーデータを生成
-            console.log('カレンダーデータを生成します');
-            generateCalendarData(formattedEntries);
-            return;
+          console.log('無効なユーザーIDを検出。新しいユーザーを作成します...');
+          const newUser = await userService.createOrGetUser(lineUsername);
+          if (!newUser || !newUser.id) {
+            setError('新しいユーザーの作成に失敗しました');
+            return false;
           }
-        } catch (supabaseError) {
-          console.error('Supabase接続エラー:', supabaseError);
+          
+          userId = newUser.id;
+          setCurrentUser(newUser);
+          console.log('新しいユーザーを作成しました:', lineUsername, 'ID:', userId);
+        } catch (error) {
+          console.error('ユーザー作成エラー:', error);
+          setError('ユーザー作成に失敗しました');
+          return false;
         }
       }
       
-      // ローカルストレージからデータを取得
+      // ローカルストレージから日記データを取得
       const savedEntries = localStorage.getItem('journalEntries');
-      if (savedEntries) {
-        console.log('ローカルストレージから日記データを取得します');
-        try {
-          const parsedEntries = JSON.parse(savedEntries);
-          
-          // ローカルデータにsyncStatusを追加
-          const localEntries = parsedEntries.map((entry: any) => ({
-            ...entry,
-            syncStatus: 'local'
-          }));
-          
-          setEntries(localEntries);
-          
-          // カレンダーデータを生成
-          console.log('カレンダーデータを生成します (ローカル)');
-          generateCalendarData(localEntries);
-        } catch (error) {
-          console.error('ローカルデータの解析エラー:', error);
-        }
+      if (!savedEntries) {
+        console.log('同期する日記データがありません');
+        setLastSyncTime(new Date().toISOString());
+        localStorage.setItem('last_sync_time', new Date().toISOString());
+        return true;
       }
-    } catch (error) {
-      console.error('データ読み込みエラー:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const generateCalendarData = (entries: JournalEntry[]) => {
-    const data: {[key: string]: number} = {};
-    
-    console.log(`カレンダーデータ生成: ${entries.length}件のエントリーを処理`);
-    entries.forEach(entry => {
-      if (entry.date) {
-        if (data[entry.date]) {
-          data[entry.date]++;
-        } else {
-          data[entry.date] = 1;
+      
+      let entries;
+      try {
+        entries = JSON.parse(savedEntries);
+        if (!Array.isArray(entries)) {
+          console.error('日記データが配列ではありません:', entries);
+          setError('日記データの形式が正しくありません');
+          return false;
         }
+      } catch (parseError) {
+        console.error('日記データの解析エラー:', parseError);
+        setError('日記データの解析に失敗しました');
+        return false;
       }
-    });
-    
-    setCalendarData(data);
-    console.log('カレンダーデータを設定しました:', Object.keys(data).length, '日分');
-  };
+      
+      // 空の配列の場合は同期をスキップ
+      if (!entries || entries.length === 0) {
+        console.log('同期する日記データがありません');
+        const now = new Date().toISOString();
+        setLastSyncTime(now);
+        localStorage.setItem('last_sync_time', now);
+        return true;
+      }
+      
+     // 既に処理済みのエントリーIDを取得
+     const currentProcessedIds = new Set(processedEntryIds);
+     
+     // 未処理のエントリーのみをフィルタリング
+     const newEntries = entries.filter((entry: any) => !currentProcessedIds.has(entry.id));
+     
+     if (newEntries.length === 0) {
+       console.log('新しい同期対象のデータがありません。すべてのエントリーは既に同期されています。');
+       const now = new Date().toISOString();
+       setLastSyncTime(now);
+       localStorage.setItem('last_sync_time', now);
+       return true;
+     }
+     
+     console.log('同期する日記データ:', newEntries.length, '件（全', entries.length, '件中）', 'ユーザーID:', userId);
 
-  const filterEntriesByDate = (date: string) => {
-    const filtered = entries.filter(entry => entry.date === date);
-    setFilteredEntries(filtered);
-  };
-
-  const navigateMonth = (direction: 'prev' | 'next') => {
-    const newDate = new Date(currentDate);
-    if (direction === 'prev') {
-      newDate.setMonth(newDate.getMonth() - 1);
-    } else {
-      newDate.setMonth(newDate.getMonth() + 1);
-    }
-    setCurrentDate(newDate);
-  };
-
-  const generateCalendar = () => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    
-    // 月の最初の日と最後の日
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    
-    // 月の最初の日の曜日（0: 日曜日, 1: 月曜日, ..., 6: 土曜日）
-    const firstDayOfWeek = firstDay.getDay();
-    
-    // カレンダーの最初の日（前月の日を含む）
-    const startDate = new Date(firstDay);
-    startDate.setDate(startDate.getDate() - firstDayOfWeek);
-    
-    const days = [];
-    const current = new Date(startDate);
-    
-    // 6週間分のカレンダーを生成（前月と翌月の日を含む）
-    for (let i = 0; i < 42; i++) {
-      days.push(new Date(current));
-      current.setDate(current.getDate() + 1);
-    }
-    
-    return days;
-  };
-
-  const formatDate = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const formatDisplayDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('ja-JP', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      weekday: 'short'
-    });
-  };
-
-  const getEmotionColor = (emotion: string) => {
-    const colorMap: { [key: string]: string } = {
-      // ネガティブな感情
-      '恐怖': 'bg-purple-100 text-purple-800 border-purple-200',
-      '悲しみ': 'bg-blue-100 text-blue-800 border-blue-200',
-      '怒り': 'bg-red-100 text-red-800 border-red-200',
-      '悔しい': 'bg-green-100 text-green-800 border-green-200',
-      '無価値感': 'bg-gray-100 text-gray-800 border-gray-300',
-      '罪悪感': 'bg-orange-100 text-orange-800 border-orange-200',
-      '寂しさ': 'bg-indigo-100 text-indigo-800 border-indigo-200',
-      '恥ずかしさ': 'bg-pink-100 text-pink-800 border-pink-200',
-      // ポジティブな感情
-      '嬉しい': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      '感謝': 'bg-teal-100 text-teal-800 border-teal-200',
-      '達成感': 'bg-lime-100 text-lime-800 border-lime-200',
-      '幸せ': 'bg-amber-100 text-amber-800 border-amber-200'
-    };
-    return colorMap[emotion] || 'bg-gray-100 text-gray-800 border-gray-200';
-  };
-
-  const getUrgencyLevelColor = (level: string) => {
-    const colorMap: { [key: string]: string } = {
-      'high': 'bg-red-100 text-red-800 border-red-200',
-      'medium': 'bg-yellow-100 text-yellow-800 border-yellow-200',
-      'low': 'bg-green-100 text-green-800 border-green-200'
-    };
-    return colorMap[level] || 'bg-gray-100 text-gray-800 border-gray-200';
-  };
-
-  const getUrgencyLevelText = (level: string) => {
-    const textMap: { [key: string]: string } = {
-      'high': '高',
-      'medium': '中',
-      'low': '低'
-    };
-    return textMap[level] || '未設定';
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-lg p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-jp-bold text-gray-900 flex items-center">
-            <Calendar className="w-5 h-5 text-blue-600 mr-2" />
-            カレンダー検索
-          </h2>
-          <div className="flex space-x-2">
-            <button
-              onClick={loadEntries}
-              className="flex items-center space-x-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1 rounded-lg text-sm font-jp-medium transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              <span>更新</span>
-            </button>
-          </div>
-        </div>
-
-        {/* カレンダー */}
-        <div className="mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <button
-              onClick={() => navigateMonth('prev')}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <ChevronLeft className="w-5 h-5 text-gray-600" />
-            </button>
-            <h3 className="text-lg font-jp-bold text-gray-900">
-              {currentDate.getFullYear()}年{currentDate.getMonth() + 1}月
-            </h3>
-            <button
-              onClick={() => navigateMonth('next')}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              <ChevronRight className="w-5 h-5 text-gray-600" />
-            </button>
-          </div>
-
-          {/* 曜日ヘッダー */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
-            {['日', '月', '火', '水', '木', '金', '土'].map((day, index) => (
-              <div 
-                key={day} 
-                className={`text-center text-sm font-jp-medium py-2 ${index === 0 ? 'text-red-500' : index === 6 ? 'text-blue-500' : 'text-gray-500'}`}
-              >
-                {day}
-              </div>
-            ))}
-          </div>
-
-          {/* カレンダー日付 */}
-          <div className="grid grid-cols-7 gap-1">
-            {generateCalendar().map((day, index) => {
-              const dateString = formatDate(day);
-              const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-              const isToday = dateString === formatDate(new Date());
-              const isSelected = dateString === selectedDate;
-              const entryCount = calendarData[dateString] || 0;
-              
-              return (
-                <button
-                  key={index}
-                  onClick={() => setSelectedDate(dateString)}
-                  className={`
-                    h-14 p-1 rounded-lg transition-colors relative
-                    ${isCurrentMonth ? 'bg-white' : 'bg-gray-50 text-gray-400'}
-                    ${isSelected ? 'ring-2 ring-blue-500' : 'hover:bg-gray-100'}
-                    ${isToday ? 'font-jp-bold' : ''}
-                  `}
-                >
-                  <div className="text-right mb-1">
-                    <span className={`text-sm ${
-                      day.getDay() === 0 ? 'text-red-500' : 
-                      day.getDay() === 6 ? 'text-blue-500' : 
-                      'text-gray-700'
-                    }`}>
-                      {day.getDate()}
-                    </span>
-                  </div>
-                  
-                  {calendarData[dateString] > 0 && (
-                    <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2">
-                      <div className="flex items-center justify-center">
-                        <span className="inline-flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-xs rounded-full">
-                          {calendarData[dateString]}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 選択した日付の日記一覧 */}
-        {selectedDate && (
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <h3 className="text-lg font-jp-bold text-gray-900 mb-4">
-              {formatDisplayDate(selectedDate)}の日記
-            </h3>
+      // 各エントリーをSupabase形式に変換
+     const formattedEntries = newEntries
+        .filter((entry: any) => entry && entry.id && entry.date && entry.emotion) // 無効なデータをフィルタリング
+        .map((entry: any) => {          
+          // UUIDの形式を検証し、無効な場合は新しいUUIDを生成
+          let entryId = entry.id;
+          if (!uuidRegex.test(entryId)) {
+            try {
+              // crypto.randomUUID()が利用可能な場合はそれを使用
+              if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                entryId = crypto.randomUUID();
+              } else {
+                // 代替の方法でUUIDを生成
+                entryId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                  const r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+                  return v.toString(16);
+                });
+              }
+              console.log(`無効なID "${entry.id}" を新しいID "${entryId}" に置き換えました`);
+            } catch (error) {
+              console.error('UUID生成エラー:', error);
+              // エラーが発生した場合は元のIDを使用
+              entryId = entry.id;
+            }
+          }
+          
+          // 必須フィールドのみを含める
+          const formattedEntry = {
+            id: entryId,
+            user_id: userId, // 常に有効なuser_idを設定
+            date: entry.date,
+            emotion: entry.emotion,
+            event: entry.event || '',
+            realization: entry.realization || '',
+            created_at: entry.created_at || new Date().toISOString()
+          };
+          
+          // スコアフィールドの処理
+          if (entry.emotion === '無価値感' || 
+              entry.emotion === '嬉しい' || 
+              entry.emotion === '感謝' || 
+              entry.emotion === '達成感' || 
+              entry.emotion === '幸せ') {
             
-            {loading ? (
-              <div className="text-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                <p className="text-gray-600 font-jp-normal">読み込み中...</p>
-              </div>
-            ) : filteredEntries.length === 0 ? (
-              <div className="text-center py-8">
-                <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-jp-medium text-gray-500 mb-2">
-                  この日の日記はありません
-                </h3>
-                <p className="text-gray-400 font-jp-normal">
-                  別の日を選択してください
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {filteredEntries.map((entry) => (
-                  <div key={entry.id} className="bg-white rounded-lg p-4 border border-gray-200 hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start mb-3">
-                      <div className="flex items-center space-x-2 flex-wrap">
-                        <span className={`px-2 py-1 rounded-full text-xs font-jp-medium border ${
-                        getEmotionColor(entry.emotion)
-                        }`}>
-                          {entry.emotion}
-                        </span>
-                        {entry.syncStatus && (
-                          <span className={`px-2 py-1 rounded-full text-xs font-jp-medium ${
-                            entry.syncStatus === 'supabase' 
-                              ? 'bg-green-100 text-green-800 border border-green-200' 
-                              : 'bg-yellow-100 text-yellow-800 border border-yellow-200'
-                          }`}>
-                            {entry.syncStatus === 'supabase' ? 'Supabase' : 'ローカル'}
-                          </span>
-                        )}
-                        {entry.urgencyLevel && (
-                          <span className={`px-2 py-1 rounded-full text-xs font-jp-medium ${getUrgencyLevelColor(entry.urgencyLevel)}`}>
-                            {getUrgencyLevelText(entry.urgencyLevel)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {entry.user?.line_username && (
-                          <span className="text-xs text-gray-500 font-jp-normal">
-                            {entry.user.line_username || 'ユーザー'}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+            // 自己肯定感スコアの処理
+            if (typeof entry.selfEsteemScore === 'number') {
+              formattedEntry.self_esteem_score = entry.selfEsteemScore;
+            } else if (typeof entry.selfEsteemScore === 'string') {
+              formattedEntry.self_esteem_score = parseInt(entry.selfEsteemScore) || 50;
+            } else if (typeof entry.self_esteem_score === 'number') {
+              formattedEntry.self_esteem_score = entry.self_esteem_score;
+            } else if (typeof entry.self_esteem_score === 'string') {
+              formattedEntry.self_esteem_score = parseInt(entry.self_esteem_score) || 50;
+            } else {
+              formattedEntry.self_esteem_score = 50;
+            }
+            
+            // 無価値感スコアの処理
+            if (typeof entry.worthlessnessScore === 'number') {
+              formattedEntry.worthlessness_score = entry.worthlessnessScore;
+            } else if (typeof entry.worthlessnessScore === 'string') {
+              formattedEntry.worthlessness_score = parseInt(entry.worthlessnessScore) || 50;
+            } else if (typeof entry.worthlessness_score === 'number') {
+              formattedEntry.worthlessness_score = entry.worthlessness_score;
+            } else if (typeof entry.worthlessness_score === 'string') {
+              formattedEntry.worthlessness_score = parseInt(entry.worthlessness_score) || 50;
+            } else {
+              formattedEntry.worthlessness_score = 50;
+            }
+          }
+          
+          // カウンセラーメモの処理
+          if (entry.counselor_memo !== undefined || entry.counselorMemo !== undefined) {
+          // 表示設定の処理
+          if (entry.is_visible_to_user !== undefined || entry.isVisibleToUser !== undefined) {
+            formattedEntry.is_visible_to_user = entry.is_visible_to_user !== undefined ? 
+                                               entry.is_visible_to_user : 
+                                               entry.isVisibleToUser || false;
+          }
+          
+          // カウンセラー名の処理
+          if (entry.counselor_name !== undefined || entry.counselorName !== undefined) {
+            formattedEntry.counselor_name = entry.counselor_name !== undefined ? 
+                                           entry.counselor_name : 
+                                           entry.counselorName || '';
+          }
+          
+          // 担当カウンセラーの処理
+          if (entry.assigned_counselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assigned_counselor;
+          } else if (entry.assignedCounselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assignedCounselor;
+          }
+          
+          // 緊急度の処理
+          if (entry.urgency_level !== undefined) {
+            formattedEntry.urgency_level = entry.urgency_level;
+          } else if (entry.urgencyLevel !== undefined) {
+            formattedEntry.urgency_level = entry.urgencyLevel;
+          }
+          
+          if (formattedEntry.counselor_name === null) {
+          if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
+          if (formattedEntry.urgency_level === null) {
+          // is_visible_to_userがNULLの場合はfalseに設定
+          if (formattedEntry.is_visible_to_user === null) {
+            formattedEntry.is_visible_to_user = false;
+          }
+          
+          return formattedEntry;
+        });
+      
+      // 日記データを同期
+      const { success, error } = await diaryService.syncDiaries(userId, formattedEntries);
+      
+      // 同期結果をログに出力
+      console.log('同期結果:', success ? '成功' : '失敗', error || '');
+      
+      if (!success) {
+        console.error('同期エラー:', error);
+        throw new Error(error);
+      }
+      
+     // 同期に成功したエントリーIDを記録
+     newEntries.forEach((entry: any) => {
+       currentProcessedIds.add(entry.id);
+     });
+     setProcessedEntryIds(currentProcessedIds);
+     
+      // 同期時間を更新
+      const now = new Date().toISOString();
+      setLastSyncTime(now);
+      localStorage.setItem('last_sync_time', now);
+      
+     console.log('データ同期完了:', newEntries.length, '件', 'ユーザーID:', userId, '時刻:', now);
+      return true;
+    } catch (err) {
+      console.error('データ同期エラー:', err);
+      setError(err instanceof Error ? err.message : '不明なエラー');
+      return false;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing, currentUser]);
+  
+  // 日記削除時の同期処理
+  const syncDeleteDiary = useCallback(async (diaryId: string): Promise<boolean> => {
+    if (!supabase) {
+      console.log('ローカルモードで動作中: Supabase接続なし、削除同期をスキップします', diaryId);
+      return true; // ローカルモードでは成功とみなす
+    }
+    
+    if (isSyncing) {
+      console.log('既に同期中です、削除同期をスキップします');
+      return false;
+    }
+    
+    setIsSyncing(true);
+    setError(null);
+    
+    try {
+      // Supabaseから日記を削除
+      const { error } = await supabase
+        .from('diary_entries')
+        .delete()
+        .eq('id', diaryId);
+      
+      if (error) {
+        console.error('Supabase日記削除エラー:', error, 'ID:', diaryId);
+        // エラーがあっても処理を続行（ローカルでは削除されている）
+        return false;
+      }
+      
+     // 処理済みIDリストから削除
+     setProcessedEntryIds(prev => {
+       const newSet = new Set(prev);
+       newSet.delete(diaryId);
+       return newSet;
+     });
+     
+      // 同期時間を更新
+      const now = new Date().toISOString();
+      setLastSyncTime(now);
+      localStorage.setItem('last_sync_time', now);
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-                      <div>
-                        <h4 className="font-jp-semibold text-gray-700 mb-1 text-sm">出来事</h4>
-                        <p className="text-gray-600 text-xs sm:text-sm font-jp-normal leading-relaxed break-words">
-                          {entry.event.length > 100 ? `${entry.event.substring(0, 100)}...` : entry.event}
-                        </p>
-                      </div>
-                      <div>
-                        <h4 className="font-jp-semibold text-gray-700 mb-1 text-sm">気づき</h4>
-                        <p className="text-gray-600 text-xs sm:text-sm font-jp-normal leading-relaxed break-words">
-                          {entry.realization && entry.realization.length > 100 ? `${entry.realization.substring(0, 100)}...` : entry.realization}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* カウンセラーメモ */}
-                    {((entry.is_visible_to_user || entry.isVisibleToUser) && (entry.counselor_memo || entry.counselorMemo)) && (
-                      <div className="bg-blue-50 rounded-lg p-3 border border-blue-200 mb-3">
-                        <div className="flex items-center space-x-2 mb-1">
-                          <span className="text-xs font-jp-medium text-blue-700 break-words">
-                            {entry.counselor_name || entry.counselorName || 'カウンセラー'}からのコメント
-                          </span>
-                        </div>
-                        <p className="text-blue-800 text-sm font-jp-normal leading-relaxed break-words">
-                          {entry.counselor_memo || entry.counselorMemo}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between items-center">
-                      <div className="text-xs text-gray-500">
-                        {(entry.assignedCounselor || entry.assigned_counselor) ?
-                          `担当: ${entry.assignedCounselor || entry.assigned_counselor}` :
-                          '未割り当て'}
-                      </div>
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => onViewEntry(entry)}
-                          className="text-blue-600 hover:text-blue-700 p-1 cursor-pointer"
-                          title="詳細を見る"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        {onDeleteEntry && (
-                          <button
-                            onClick={() => onDeleteEntry(entry.id)}
-                            className="text-red-600 hover:text-red-700 p-1 cursor-pointer"
-                            title="削除"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+      console.log('日記削除同期完了:', diaryId, '時刻:', now);
+      return true;
+    } catch (err) {
+      console.error('日記削除同期エラー:', err);
+      // エラーがあっても処理を続行（ローカルでは削除されている）
+      return true;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing]);
+  
+  // 複数日記削除時の同期処理
+  const syncBulkDeleteDiaries = useCallback(async (diaryIds: string[]): Promise<boolean> => {
+    if (!supabase) {
+      console.log('ローカルモードで動作中: Supabase接続なし、一括削除同期をスキップします', diaryIds.length);
+      return true; // ローカルモードでは成功とみなす
+    }
+    
+    if (isSyncing) {
+      console.log('既に同期中です、一括削除同期をスキップします');
+      return false;
+    }
+    
+    if (!diaryIds || diaryIds.length === 0) {
+      console.log('削除する日記IDがありません');
+      return false;
+    }
+    
+    setIsSyncing(true);
+    setError(null);
+    
+    try {
+      // 一括削除（100件ずつに分割して実行）
+      const chunkSize = 100;
+      let success = true;
+      let deletedCount = 0;
+      
+      for (let i = 0; i < diaryIds.length; i += chunkSize) {
+        const chunk = diaryIds.slice(i, i + chunkSize);
+        try {
+          const { error } = await supabase
+            .from('diary_entries')
+            .delete()
+            .in('id', chunk);
+          
+          if (error) {
+            console.error(`日記の一括削除エラー (${i}~${i+chunk.length})`, error, 'IDs:', chunk);
+            // エラーがあっても処理を続行
+          } else {
+            deletedCount += chunk.length;
+          }
+        } catch (err) {
+          console.error(`日記の一括削除中にエラー (${i}~${i+chunk.length})`, err, 'IDs:', chunk);
+          // エラーがあっても処理を続行
+        }
+      }
+      
+     // 処理済みIDリストから削除
+     setProcessedEntryIds(prev => {
+       const newSet = new Set(prev);
+       diaryIds.forEach(id => newSet.delete(id));
+       return newSet;
+     });
+     
+      // 同期時間を更新
+      const now = new Date().toISOString();
+      setLastSyncTime(now);
+      localStorage.setItem('last_sync_time', now);
+      
+      console.log('一括削除同期完了:', deletedCount, '/', diaryIds.length, '件', '時刻:', now);
+      return success;
+    } catch (err) {
+      console.error('一括削除同期エラー:', err);
+      // エラーがあっても処理を続行（ローカルでは削除されている）
+      return true;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [isSyncing]);
+  
+  // 手動同期のトリガー
+  const triggerManualSync = useCallback(async (): Promise<boolean> => {
+   // 手動同期の場合は処理済みIDをリセットして全データを同期
+   setProcessedEntryIds(new Set());
+    return await syncData();
+  }, [syncData]);
+  
+  return {
+    isAutoSyncEnabled,
+    isSyncing,
+    lastSyncTime,
+    error,
+    currentUser,
+    triggerManualSync,
+    syncDeleteDiary,
+    syncBulkDeleteDiaries
+  };
 };
-
-export default CalendarSearch;
