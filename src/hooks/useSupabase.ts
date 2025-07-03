@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, userService } from '../src/lib/supabase';
-import { getCurrentUser } from '../src/lib/deviceAuth';
+import { supabase, userService } from '../lib/supabase';
+import { getCurrentUser } from '../lib/deviceAuth';
 
 interface SupabaseState {
   isConnected: boolean;
