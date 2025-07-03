@@ -47,6 +47,7 @@ const DeviceAuthLogin: React.FC<DeviceAuthLoginProps> = ({
   const [userSecurityQuestions, setUserSecurityQuestions] = useState<SecurityQuestion[]>([]);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
+  // 初期化
   useEffect(() => {
     checkDeviceCompatibility();
   }, []);

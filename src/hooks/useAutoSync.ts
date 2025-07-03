@@ -22,9 +22,6 @@ export const useAutoSync = (): AutoSyncState => {
   const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [processedEntryIds, setProcessedEntryIds] = useState<Set<string>>(new Set());
   
-  // 重複チェック用のマップ
-  const [processedEntryMap, setProcessedEntryMap] = useState<Map<string, boolean>>(new Map());
-  
   // 自動同期設定の読み込み
   useEffect(() => {
     const autoSyncSetting = localStorage.getItem('auto_sync_enabled');
@@ -120,9 +117,6 @@ export const useAutoSync = (): AutoSyncState => {
     setError(null);
     
     try {
-      // 重複チェック用のマップをリセット（手動同期の場合）
-      setProcessedEntryMap(new Map());
-      
       // 現在のユーザーを取得
       const user = getCurrentUser();
       // ユーザー情報がない場合はローカルストレージから取得
@@ -210,28 +204,8 @@ export const useAutoSync = (): AutoSyncState => {
      // 既に処理済みのエントリーIDを取得
      const currentProcessedIds = new Set(processedEntryIds);
      
-     // 重複チェック用のマップを作成
-     const entryMap = new Map<string, boolean>();
-     
-     const newEntries = entries.filter((entry: any) => {
-       // 重複チェック用のキーを作成（日付+感情+内容の先頭50文字）
-       const key = `${entry.date}_${entry.emotion}_${entry.event.substring(0, 50)}`;
-       
-       // 既に同じキーが存在する場合は重複とみなす
-       if (processedEntryMap.has(key) || entryMap.has(key)) {
-         console.log('重複エントリーをスキップ:', key);
-         return false;
-       }
-       
-       // 処理済みIDに含まれている場合もスキップ
-       if (currentProcessedIds.has(entry.id)) {
-         return false;
-       }
-       
-       // 重複チェック用のマップに追加
-       entryMap.set(key, true);
-       return true;
-     });
+     // 未処理のエントリーのみをフィルタリング
+     const newEntries = entries.filter((entry: any) => !currentProcessedIds.has(entry.id));
      
      if (newEntries.length === 0) {
        console.log('新しい同期対象のデータがありません。すべてのエントリーは既に同期されています。');
@@ -241,7 +215,7 @@ export const useAutoSync = (): AutoSyncState => {
        return true;
      }
      
-     console.log('同期する日記データ:', newEntries.length, '件（全', entries.length, '件中、重複除外後）', 'ユーザーID:', userId);
+     console.log('同期する日記データ:', newEntries.length, '件（全', entries.length, '件中）', 'ユーザーID:', userId);
 
       // 各エントリーをSupabase形式に変換
      const formattedEntries = newEntries
@@ -308,73 +282,79 @@ export const useAutoSync = (): AutoSyncState => {
             } else if (typeof entry.worthlessness_score === 'number') {
               formattedEntry.worthlessness_score = entry.worthlessness_score;
             } else if (typeof entry.worthlessness_score === 'string') {
+              formattedEntry.worthlessness_score = parseInt(entry.worthlessness_score) || 50;
             } else {
               formattedEntry.worthlessness_score = 50;
             }
           }
           
           // カウンセラーメモの処理
-          if (entry.counselor_memo !== undefined || entry.counselorMemo !== undefined) {
-            formattedEntry.counselor_memo = entry.counselor_memo !== undefined ? 
-                                           entry.counselor_memo : 
-                                           entry.counselorMemo || '';
+          if (entry.counselor_memo !== undefined) {
+            formattedEntry.counselor_memo = entry.counselor_memo;
+          } else if (entry.counselorMemo !== undefined) {
+            formattedEntry.counselor_memo = entry.counselorMemo || '';
           }
           
           // 表示設定の処理
-          if (entry.is_visible_to_user !== undefined || entry.isVisibleToUser !== undefined) {
-            formattedEntry.is_visible_to_user = entry.is_visible_to_user !== undefined ? 
-                                               entry.is_visible_to_user : 
-                                               entry.isVisibleToUser || false;
+          if (entry.is_visible_to_user !== undefined) {
+            formattedEntry.is_visible_to_user = entry.is_visible_to_user;
+          } else if (entry.isVisibleToUser !== undefined) {
+            formattedEntry.is_visible_to_user = entry.isVisibleToUser;
+          } else {
+            formattedEntry.is_visible_to_user = false;
           }
           
           // カウンセラー名の処理
-          if (entry.counselor_name !== undefined || entry.counselorName !== undefined) {
-            formattedEntry.counselor_name = entry.counselor_name !== undefined ? 
-                                           entry.counselor_name : 
-                                           entry.counselorName || '';
+          if (entry.counselor_name !== undefined) {
+            formattedEntry.counselor_name = entry.counselor_name;
+          } else if (entry.counselorName !== undefined) {
+            formattedEntry.counselor_name = entry.counselorName;
           }
           
           // 担当カウンセラーの処理
-          if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
-                                               entry.assigned_counselor : 
-                                               entry.assignedCounselor || '';
+          if (entry.assigned_counselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assigned_counselor;
+          } else if (entry.assignedCounselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assignedCounselor;
           }
           
           // 緊急度の処理
-          if (entry.urgency_level !== undefined || entry.urgencyLevel !== undefined) {
-            // 緊急度の値を取得
-            let urgencyValue = entry.urgency_level !== undefined ? 
-                             entry.urgency_level : 
-                             entry.urgencyLevel || '';
-
-            // 許可された値のみを設定（high, medium, low, または空文字列）
-            if (urgencyValue !== 'high' && urgencyValue !== 'medium' && urgencyValue !== 'low' && urgencyValue !== '') {
-              // 無効な値の場合は空文字列に設定
-              console.warn(`無効な緊急度の値: ${urgencyValue}、空に設定します`);
-              urgencyValue = '';
-            }
-            
-            formattedEntry.urgency_level = urgencyValue;
+          if (entry.urgency_level !== undefined) {
+            formattedEntry.urgency_level = entry.urgency_level;
+          } else if (entry.urgencyLevel !== undefined) {
+            formattedEntry.urgency_level = entry.urgencyLevel;
+          }
+          
+          // NULL値を空文字列に変換
+          if (formattedEntry.counselor_memo === null) {
+            formattedEntry.counselor_memo = '';
+          }
+          
+          if (formattedEntry.counselor_name === null) {
+            formattedEntry.counselor_name = '';
+          }
+          
+          if (formattedEntry.assigned_counselor === null) {
+            formattedEntry.assigned_counselor = '';
+          }
+          
+          if (formattedEntry.urgency_level === null) {
+            formattedEntry.urgency_level = '';
+          }
+          
+          // is_visible_to_userがNULLの場合はfalseに設定
+          if (formattedEntry.is_visible_to_user === null) {
+            formattedEntry.is_visible_to_user = false;
           }
           
           return formattedEntry;
         });
       
-      // 所有者列(user_id, username)を送らないようにサニタイズ
-      const sanitized = formattedEntries.map(({ user_id, username, ...rest }) => rest);
-      
       // 日記データを同期
-      const { success, error } = await diaryService.syncDiaries(userId, sanitized);
+      const { success, error } = await diaryService.syncDiaries(userId, formattedEntries);
       
-      // 同期結果の詳細をログに出力
-      console.log('同期結果:', success ? '成功' : '失敗', error || '', 'データ件数:', formattedEntries.length, 'ユーザーID:', userId);
-      
-      // 同期エラーのデバッグ情報
-      if (!success) {
-        console.error('同期エラーの詳細:', error);
-        console.log('同期に失敗したデータの一部:', formattedEntries.slice(0, 2));
-      }
+      // 同期結果をログに出力
+      console.log('同期結果:', success ? '成功' : '失敗', error || '');
       
       if (!success) {
         console.error('同期エラー:', error);
@@ -384,20 +364,15 @@ export const useAutoSync = (): AutoSyncState => {
      // 同期に成功したエントリーIDを記録
      newEntries.forEach((entry: any) => {
        currentProcessedIds.add(entry.id);
-       
-       // 重複チェック用のマップにも追加
-       const key = `${entry.date}_${entry.emotion}_${entry.event.substring(0, 50)}`;
-       processedEntryMap.set(key, true);
      });
      setProcessedEntryIds(currentProcessedIds);
-     setProcessedEntryMap(new Map([...processedEntryMap, ...entryMap]));
      
       // 同期時間を更新
       const now = new Date().toISOString();
       setLastSyncTime(now);
       localStorage.setItem('last_sync_time', now);
       
-      console.log('データ同期完了:', newEntries.length, '件', 'ユーザーID:', userId, '時刻:', now, '同期されたデータ:', formattedEntries.slice(0, 1));
+     console.log('データ同期完了:', newEntries.length, '件', 'ユーザーID:', userId, '時刻:', now);
       return true;
     } catch (err) {
       console.error('データ同期エラー:', err);
@@ -406,12 +381,12 @@ export const useAutoSync = (): AutoSyncState => {
     } finally {
       setIsSyncing(false);
     }
-  }, [isSyncing, currentUser, processedEntryIds, processedEntryMap]);
+  }, [isSyncing, currentUser]);
   
   // 日記削除時の同期処理
   const syncDeleteDiary = useCallback(async (diaryId: string): Promise<boolean> => {
     if (!supabase) {
-      console.log('ローカルモードで動作中: Supabase接続なし、削除同期をスキップします');
+      console.log('ローカルモードで動作中: Supabase接続なし、削除同期をスキップします', diaryId);
       return true; // ローカルモードでは成功とみなす
     }
     
@@ -426,11 +401,13 @@ export const useAutoSync = (): AutoSyncState => {
     try {
       // Supabaseから日記を削除
       const { error } = await supabase
-        .from('diary_entries').delete().eq('id', diaryId);
+        .from('diary_entries')
+        .delete()
+        .eq('id', diaryId);
       
       if (error) {
         console.error('Supabase日記削除エラー:', error, 'ID:', diaryId);
-        setError(`日記削除エラー: ${error.message}`);
+        // エラーがあっても処理を続行（ローカルでは削除されている）
         return false;
       }
       
@@ -443,7 +420,7 @@ export const useAutoSync = (): AutoSyncState => {
      
       // 同期時間を更新
       const now = new Date().toISOString();
-      setLastSyncTime(now); 
+      setLastSyncTime(now);
       localStorage.setItem('last_sync_time', now);
 
       console.log('日記削除同期完了:', diaryId, '時刻:', now);
@@ -489,12 +466,11 @@ export const useAutoSync = (): AutoSyncState => {
           const { error } = await supabase
             .from('diary_entries')
             .delete()
-            .in('id', chunk)
-            .select();
+            .in('id', chunk);
           
           if (error) {
             console.error(`日記の一括削除エラー (${i}~${i+chunk.length})`, error, 'IDs:', chunk);
-            success = false;
+            // エラーがあっても処理を続行
           } else {
             deletedCount += chunk.length;
           }
@@ -531,7 +507,6 @@ export const useAutoSync = (): AutoSyncState => {
   const triggerManualSync = useCallback(async (): Promise<boolean> => {
    // 手動同期の場合は処理済みIDをリセットして全データを同期
    setProcessedEntryIds(new Set());
-   setProcessedEntryMap(new Map());
     return await syncData();
   }, [syncData]);
   

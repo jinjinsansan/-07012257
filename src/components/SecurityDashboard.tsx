@@ -300,51 +300,51 @@ const SecurityDashboard: React.FC = () => {
       {/* メトリクス */}
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-          <div className="flex items-center space-x-2 mb-2">
+          <div className="flex items-center space-x-2">
             <Users className="w-5 h-5 text-blue-600" />
-            <span className="text-sm font-jp-medium text-gray-700">総ユーザー</span>
+            <span className="text-sm font-jp-medium text-gray-700">総ユーザー数</span>
           </div>
-          <p className="text-2xl font-jp-bold text-blue-600">{metrics.totalUsers}</p>
+          <p className="text-2xl font-jp-bold text-blue-600 mt-1">{metrics.totalUsers}</p>
         </div>
         
         <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-          <div className="flex items-center space-x-2 mb-2">
+          <div className="flex items-center space-x-2">
             <Activity className="w-5 h-5 text-green-600" />
             <span className="text-sm font-jp-medium text-gray-700">アクティブ</span>
           </div>
-          <p className="text-2xl font-jp-bold text-green-600">{metrics.activeUsers}</p>
+          <p className="text-2xl font-jp-bold text-green-600 mt-1">{metrics.activeUsers}</p>
         </div>
         
         <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-          <div className="flex items-center space-x-2 mb-2">
+          <div className="flex items-center space-x-2">
             <Lock className="w-5 h-5 text-red-600" />
             <span className="text-sm font-jp-medium text-gray-700">ロック中</span>
           </div>
-          <p className="text-2xl font-jp-bold text-red-600">{metrics.lockedAccounts}</p>
+          <p className="text-2xl font-jp-bold text-red-600 mt-1">{metrics.lockedAccounts}</p>
         </div>
         
         <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-          <div className="flex items-center space-x-2 mb-2">
+          <div className="flex items-center space-x-2">
             <TrendingUp className="w-5 h-5 text-purple-600" />
             <span className="text-sm font-jp-medium text-gray-700">今日のログイン</span>
           </div>
-          <p className="text-2xl font-jp-bold text-purple-600">{metrics.todayLogins}</p>
+          <p className="text-2xl font-jp-bold text-purple-600 mt-1">{metrics.todayLogins}</p>
         </div>
         
         <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-          <div className="flex items-center space-x-2 mb-2">
+          <div className="flex items-center space-x-2">
             <AlertTriangle className="w-5 h-5 text-orange-600" />
             <span className="text-sm font-jp-medium text-gray-700">失敗試行</span>
           </div>
-          <p className="text-2xl font-jp-bold text-orange-600">{metrics.failedAttempts}</p>
+          <p className="text-2xl font-jp-bold text-orange-600 mt-1">{metrics.failedAttempts}</p>
         </div>
         
         <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-          <div className="flex items-center space-x-2 mb-2">
+          <div className="flex items-center space-x-2">
             <BarChart3 className="w-5 h-5 text-indigo-600" />
             <span className="text-sm font-jp-medium text-gray-700">イベント数</span>
           </div>
-          <p className="text-2xl font-jp-bold text-indigo-600">{metrics.securityEvents}</p>
+          <p className="text-2xl font-jp-bold text-indigo-600 mt-1">{metrics.securityEvents}</p>
         </div>
       </div>
 

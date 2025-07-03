@@ -571,7 +571,7 @@ const DeviceAuthManagement: React.FC = () => {
                             {user.lineUsername}
                           </div>
                           <div className="text-sm text-gray-500">
-                            登録: {formatDateTime(user.createdAt)}
+                            ID: {user.deviceId}
                           </div>
                         </div>
                       </div>

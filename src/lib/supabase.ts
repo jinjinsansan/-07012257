@@ -225,65 +225,40 @@ export const diaryService = {
           }
           
           // カウンセラーメモの処理
-          if (diary.counselor_memo !== undefined) {
-            formattedEntry.counselor_memo = diary.counselor_memo;
-          } else if (diary.counselorMemo !== undefined) {
-            formattedEntry.counselor_memo = diary.counselorMemo || '';
-          }
-          
-          // 明示的にnullの場合は空文字列に変換（PostgreSQLのNULL制約対策）
-          if (formattedEntry.counselor_memo === null) {
-            formattedEntry.counselor_memo = '';
+          if (diary.counselor_memo !== undefined || diary.counselorMemo !== undefined) {
+            formattedEntry.counselor_memo = diary.counselor_memo !== undefined ? 
+                                           diary.counselor_memo : 
+                                           diary.counselorMemo || '';
           }
           
           // 表示設定の処理
-          if (diary.is_visible_to_user !== undefined) {
-            formattedEntry.is_visible_to_user = diary.is_visible_to_user;
-          } else if (diary.isVisibleToUser !== undefined) {
-            formattedEntry.is_visible_to_user = diary.isVisibleToUser;
-          } else {
-            formattedEntry.is_visible_to_user = false;
+          if (diary.is_visible_to_user !== undefined || diary.isVisibleToUser !== undefined) {
+            formattedEntry.is_visible_to_user = diary.is_visible_to_user !== undefined ? 
+                                               diary.is_visible_to_user : 
+                                               diary.isVisibleToUser || false;
           }
           
           // カウンセラー名の処理
-          if (diary.counselor_name !== undefined) {
-            formattedEntry.counselor_name = diary.counselor_name;
-          } else if (diary.counselorName !== undefined) {
-            formattedEntry.counselor_name = diary.counselorName || '';
-          }
-          
-          // 明示的にnullの場合は空文字列に変換（PostgreSQLのNULL制約対策）
-          if (formattedEntry.counselor_name === null) {
-            formattedEntry.counselor_name = '';
+          if (diary.counselor_name !== undefined || diary.counselorName !== undefined) {
+            formattedEntry.counselor_name = diary.counselor_name !== undefined ? 
+                                           diary.counselor_name : 
+                                           diary.counselorName || '';
           }
           
           // 担当カウンセラーの処理
-          if (diary.assigned_counselor !== undefined) {
-            formattedEntry.assigned_counselor = diary.assigned_counselor;
-          } else if (diary.assignedCounselor !== undefined) {
-            formattedEntry.assigned_counselor = diary.assignedCounselor || '';
-          }
-          
-          // 明示的にnullの場合は空文字列に変換（PostgreSQLのNULL制約対策）
-          if (formattedEntry.assigned_counselor === null) {
-            formattedEntry.assigned_counselor = '';
+          if (diary.assigned_counselor !== undefined || diary.assignedCounselor !== undefined) {
+            formattedEntry.assigned_counselor = diary.assigned_counselor !== undefined ? 
+                                               diary.assigned_counselor : 
+                                               diary.assignedCounselor || '';
           }
           
           // 緊急度の処理
-          if (diary.urgency_level !== undefined) {
-            let urgencyValue = diary.urgency_level || '';
-            
-            // 許可された値のみを設定（high, medium, low、または空文字列）
-            if (urgencyValue !== 'high' && urgencyValue !== 'medium' && urgencyValue !== 'low' && urgencyValue !== '') {
-              // 無効な値の場合は空文字列に設定
-              console.warn(`無効な緊急度の値: ${urgencyValue}、空に設定します`);
-              urgencyValue = '';
-            }
-            
-            formattedEntry.urgency_level = urgencyValue;
-          } else if (diary.urgencyLevel !== undefined) {
-            let urgencyValue = diary.urgencyLevel || '';
-            
+          if (diary.urgency_level !== undefined || diary.urgencyLevel !== undefined) {
+            // 緊急度の値を取得
+            let urgencyValue = diary.urgency_level !== undefined ? 
+                             diary.urgency_level : 
+                             diary.urgencyLevel || '';
+
             // 許可された値のみを設定（high, medium, low、または空文字列）
             if (urgencyValue !== 'high' && urgencyValue !== 'medium' && urgencyValue !== 'low' && urgencyValue !== '') {
               // 無効な値の場合は空文字列に設定
@@ -319,21 +294,10 @@ export const diaryService = {
           return formattedEntry;
         });
       
-      console.log('Supabaseに同期するデータ:', formattedDiaries.length, '件', 'ユーザーID:', userId);
-      
-      // デバッグ用：最初の数件のデータを表示
-      if (formattedDiaries.length > 0) {
-        console.log('同期データサンプル:', formattedDiaries.slice(0, 2));
-      }
-      
-      if (formattedDiaries.length === 0) {
-        return { success: true, message: '有効な同期データがありません' };
-      }
-      
       // 所有者列(user_id, username)を送らないようにサニタイズ
       const sanitized = formattedDiaries.map(({ user_id, username, ...rest }) => rest);
       
-      // 一括挿入（競合時は更新）
+      // 日記データを同期
       const { data, error } = await supabase
         .from('diary_entries')
         .upsert(sanitized, {
