@@ -201,24 +201,24 @@ export const useAutoSync = (): AutoSyncState => {
         return true;
       }
       
-     // 既に処理済みのエントリーIDを取得
-     const currentProcessedIds = new Set(processedEntryIds);
-     
-     // 未処理のエントリーのみをフィルタリング
-     const newEntries = entries.filter((entry: any) => !currentProcessedIds.has(entry.id));
-     
-     if (newEntries.length === 0) {
-       console.log('新しい同期対象のデータがありません。すべてのエントリーは既に同期されています。');
-       const now = new Date().toISOString();
-       setLastSyncTime(now);
-       localStorage.setItem('last_sync_time', now);
-       return true;
-     }
-     
-     console.log('同期する日記データ:', newEntries.length, '件（全', entries.length, '件中）', 'ユーザーID:', userId);
+      // 既に処理済みのエントリーIDを取得
+      const currentProcessedIds = new Set(processedEntryIds);
+      
+      // 未処理のエントリーのみをフィルタリング
+      const newEntries = entries.filter((entry: any) => !currentProcessedIds.has(entry.id));
+      
+      if (newEntries.length === 0) {
+        console.log('新しい同期対象のデータがありません。すべてのエントリーは既に同期されています。');
+        const now = new Date().toISOString();
+        setLastSyncTime(now);
+        localStorage.setItem('last_sync_time', now);
+        return true;
+      }
+      
+      console.log('同期する日記データ:', newEntries.length, '件（全', entries.length, '件中）', 'ユーザーID:', userId);
 
       // 各エントリーをSupabase形式に変換
-     const formattedEntries = newEntries
+      const formattedEntries = newEntries
         .filter((entry: any) => entry && entry.id && entry.date && entry.emotion) // 無効なデータをフィルタリング
         .map((entry: any) => {          
           // UUIDの形式を検証し、無効な場合は新しいUUIDを生成
@@ -318,59 +318,77 @@ export const useAutoSync = (): AutoSyncState => {
           
           // 緊急度の処理
           if (entry.urgency_level !== undefined || entry.urgencyLevel !== undefined) {
-      // 各日記エントリーにuser_idを設定
-            // 緊急度の値を取得
-      const diariesWithUserId = diaries.map(diary => ({
-    }
-        ...diary,
-  }, [isSyncing]);
-        user_id: userId
-  
-      }));
-  // 複数日記削除時の同期処理
-      
-  const syncBulkDeleteDiaries = useCallback(async (diaryIds: string[]): Promise<boolean> => {
-      // 一括挿入（競合時は更新）
-    if (!supabase) {
-      const { error } = await supabase
-      console.log('ローカルモードで動作中: Supabase接続なし、一括削除同期をスキップします', diaryIds.length);
-        .from('diary_entries')
-      return true; // ローカルモードでは成功とみなす
-        .upsert(diariesWithUserId, {
-    }
-          onConflict: 'id',
-    
-          ignoreDuplicates: false,
-    if (isSyncing) {
-          returning: 'minimal'
-      console.log('既に同期中です、一括削除同期をスキップします');
+            formattedEntry.urgency_level = entry.urgency_level !== undefined ? 
+                                          entry.urgency_level : 
+                                          entry.urgencyLevel || 0;
+          }
+          
+          return formattedEntry;
         });
-      return false;
       
-    }
+      // 各日記エントリーにuser_idを設定
+      const diariesWithUserId = formattedEntries.map(diary => ({
+        ...diary,
+        user_id: userId
+      }));
+      
+      // 一括挿入（競合時は更新）
+      const { error } = await supabase
+        .from('diary_entries')
+        .upsert(diariesWithUserId, {
+          onConflict: 'id',
+          ignoreDuplicates: false,
+          returning: 'minimal'
+        });
+      
       if (error) {
-    
-        console.error('日記同期エラー:', error, 'データ件数:', diaries.length, 'エラー詳細:', error.details);
-    if (!diaryIds || diaryIds.length === 0) {
-        return { success: false, error: error.message };
-      console.log('削除する日記IDがありません');
+        console.error('日記同期エラー:', error, 'データ件数:', formattedEntries.length, 'エラー詳細:', error.details);
+        return false;
       }
-      return false;
       
-    }
-      return { success: true };
-    
+      // 処理済みIDを更新
+      const newProcessedIds = new Set([...currentProcessedIds]);
+      formattedEntries.forEach(entry => newProcessedIds.add(entry.id));
+      setProcessedEntryIds(newProcessedIds);
+      
+      // 同期時間を更新
+      const now = new Date().toISOString();
+      setLastSyncTime(now);
+      localStorage.setItem('last_sync_time', now);
+      
+      console.log('同期完了:', formattedEntries.length, '件', '時刻:', now);
+      return true;
     } catch (err) {
-    setIsSyncing(true);
-      console.error('日記同期サービスエラー:', err);
-    setError(null);
-      const errorMessage = err instanceof Error ? err.message : String(err);
-    
-      return { success: false, error: errorMessage };
-    try {
+      console.error('同期エラー:', err);
+      setError('同期に失敗しました');
+      return false;
+    } finally {
+      setIsSyncing(false);
     }
+  }, [isSyncing, currentUser, processedEntryIds]);
+  
+  // 複数日記削除時の同期処理
+  const syncBulkDeleteDiaries = useCallback(async (diaryIds: string[]): Promise<boolean> => {
+    if (!supabase) {
+      console.log('ローカルモードで動作中: Supabase接続なし、一括削除同期をスキップします', diaryIds.length);
+      return true; // ローカルモードでは成功とみなす
+    }
+    
+    if (isSyncing) {
+      console.log('既に同期中です、一括削除同期をスキップします');
+      return false;
+    }
+    
+    if (!diaryIds || diaryIds.length === 0) {
+      console.log('削除する日記IDがありません');
+      return false;
+    }
+    
+    setIsSyncing(true);
+    setError(null);
+    
+    try {
       // 一括削除（100件ずつに分割して実行）
-  }
       const chunkSize = 100;
       let success = true;
       let deletedCount = 0;
@@ -390,13 +408,16 @@ export const useAutoSync = (): AutoSyncState => {
             deletedCount += chunk.length;
           }
         } catch (err) {
-     // 処理済みIDリストから削除
-          if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
-                                               entry.assigned_counselor : 
-                                               entry.assignedCounselor || '';
-     });
-     
+          console.error(`チャンク削除エラー (${i}~${i+chunk.length}):`, err);
+          success = false;
+        }
+      }
+      
+      // 処理済みIDリストから削除
+      const newProcessedIds = new Set(processedEntryIds);
+      diaryIds.forEach(id => newProcessedIds.delete(id));
+      setProcessedEntryIds(newProcessedIds);
+      
       // 同期時間を更新
       const now = new Date().toISOString();
       setLastSyncTime(now);
@@ -411,12 +432,12 @@ export const useAutoSync = (): AutoSyncState => {
     } finally {
       setIsSyncing(false);
     }
-  }, [isSyncing]);
+  }, [isSyncing, processedEntryIds]);
   
   // 手動同期のトリガー
   const triggerManualSync = useCallback(async (): Promise<boolean> => {
-   // 手動同期の場合は処理済みIDをリセットして全データを同期
-   setProcessedEntryIds(new Set());
+    // 手動同期の場合は処理済みIDをリセットして全データを同期
+    setProcessedEntryIds(new Set());
     return await syncData();
   }, [syncData]);
   
