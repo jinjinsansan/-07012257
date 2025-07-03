@@ -246,7 +246,7 @@ export const useAutoSync = (): AutoSyncState => {
           // 必須フィールドのみを含める
           const formattedEntry = {
             id: entryId,
-            user_id: userId,
+            user_id: userId, // 常に有効なuser_idを設定
             date: entry.date,
             emotion: entry.emotion,
             event: entry.event || '',
@@ -289,173 +289,88 @@ export const useAutoSync = (): AutoSyncState => {
           }
           
           // カウンセラーメモの処理
-          if (entry.counselor_memo !== undefined) {
-            formattedEntry.counselor_memo = entry.counselor_memo;
-          } else if (entry.counselorMemo !== undefined) {
-            formattedEntry.counselor_memo = entry.counselorMemo || '';
+          if (entry.counselor_memo !== undefined || entry.counselorMemo !== undefined) {
+            formattedEntry.counselor_memo = entry.counselor_memo !== undefined ? 
+                                           entry.counselor_memo : 
+                                           entry.counselorMemo || '';
           }
           
           // 表示設定の処理
-          if (entry.is_visible_to_user !== undefined) {
-            formattedEntry.is_visible_to_user = entry.is_visible_to_user;
-          } else if (entry.isVisibleToUser !== undefined) {
-            formattedEntry.is_visible_to_user = entry.isVisibleToUser;
-          } else {
-            formattedEntry.is_visible_to_user = false;
+          if (entry.is_visible_to_user !== undefined || entry.isVisibleToUser !== undefined) {
+            formattedEntry.is_visible_to_user = entry.is_visible_to_user !== undefined ? 
+                                               entry.is_visible_to_user : 
+                                               entry.isVisibleToUser || false;
           }
           
           // カウンセラー名の処理
-          if (entry.counselor_name !== undefined) {
-            formattedEntry.counselor_name = entry.counselor_name;
-          } else if (entry.counselorName !== undefined) {
-            formattedEntry.counselor_name = entry.counselorName;
+          if (entry.counselor_name !== undefined || entry.counselorName !== undefined) {
+            formattedEntry.counselor_name = entry.counselor_name !== undefined ? 
+                                           entry.counselor_name : 
+                                           entry.counselorName || '';
           }
           
           // 担当カウンセラーの処理
-          if (entry.assigned_counselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assigned_counselor;
-          } else if (entry.assignedCounselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assignedCounselor;
+          if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
+                                               entry.assigned_counselor : 
+                                               entry.assignedCounselor || '';
           }
           
           // 緊急度の処理
-          if (entry.urgency_level !== undefined) {
-            formattedEntry.urgency_level = entry.urgency_level;
-          } else if (entry.urgencyLevel !== undefined) {
-            formattedEntry.urgency_level = entry.urgencyLevel;
-          }
-          
-          // NULL値を空文字列に変換
-          if (formattedEntry.counselor_memo === null) {
-            formattedEntry.counselor_memo = '';
-          }
-          
-          if (formattedEntry.counselor_name === null) {
-            formattedEntry.counselor_name = '';
-          }
-          
-          if (formattedEntry.assigned_counselor === null) {
-            formattedEntry.assigned_counselor = '';
-          }
-          
-          if (formattedEntry.urgency_level === null) {
-            formattedEntry.urgency_level = '';
-          }
-          
-          // is_visible_to_userがNULLの場合はfalseに設定
-          if (formattedEntry.is_visible_to_user === null) {
-            formattedEntry.is_visible_to_user = false;
-          }
-          
-          return formattedEntry;
-        });
-      
-      // 日記データを同期
-      const { success, error } = await diaryService.syncDiaries(userId, formattedEntries);
-      
-      // 同期結果をログに出力
-      console.log('同期結果:', success ? '成功' : '失敗', error || '');
-      
-      if (!success) {
-        console.error('同期エラー:', error);
-        throw new Error(error);
-      }
-      
-     // 同期に成功したエントリーIDを記録
-     newEntries.forEach((entry: any) => {
-       currentProcessedIds.add(entry.id);
-     });
-     setProcessedEntryIds(currentProcessedIds);
-     
-      // 同期時間を更新
-      const now = new Date().toISOString();
-      setLastSyncTime(now);
-      localStorage.setItem('last_sync_time', now);
-      
-     console.log('データ同期完了:', newEntries.length, '件', 'ユーザーID:', userId, '時刻:', now);
-      return true;
-    } catch (err) {
-      console.error('データ同期エラー:', err);
-      setError(err instanceof Error ? err.message : '不明なエラー');
-      return false;
-    } finally {
-      setIsSyncing(false);
+          if (entry.urgency_level !== undefined || entry.urgencyLevel !== undefined) {
+      // 各日記エントリーにuser_idを設定
+            // 緊急度の値を取得
+      const diariesWithUserId = diaries.map(diary => ({
     }
-  }, [isSyncing, currentUser]);
-  
-  // 日記削除時の同期処理
-  const syncDeleteDiary = useCallback(async (diaryId: string): Promise<boolean> => {
-    if (!supabase) {
-      console.log('ローカルモードで動作中: Supabase接続なし、削除同期をスキップします', diaryId);
-      return true; // ローカルモードでは成功とみなす
-    }
-    
-    if (isSyncing) {
-      console.log('既に同期中です、削除同期をスキップします');
-      return false;
-    }
-    
-    setIsSyncing(true);
-    setError(null);
-    
-    try {
-      // Supabaseから日記を削除
-      const { error } = await supabase
-        .from('diary_entries')
-        .delete()
-        .eq('id', diaryId);
-      
-      if (error) {
-        console.error('Supabase日記削除エラー:', error, 'ID:', diaryId);
-        // エラーがあっても処理を続行（ローカルでは削除されている）
-        return false;
-      }
-      
-     // 処理済みIDリストから削除
-     setProcessedEntryIds(prev => {
-       const newSet = new Set(prev);
-       newSet.delete(diaryId);
-       return newSet;
-     });
-     
-      // 同期時間を更新
-      const now = new Date().toISOString();
-      setLastSyncTime(now);
-      localStorage.setItem('last_sync_time', now);
-
-      console.log('日記削除同期完了:', diaryId, '時刻:', now);
-      return true;
-    } catch (err) {
-      console.error('日記削除同期エラー:', err);
-      // エラーがあっても処理を続行（ローカルでは削除されている）
-      return true;
-    } finally {
-      setIsSyncing(false);
-    }
+        ...diary,
   }, [isSyncing]);
+        user_id: userId
   
+      }));
   // 複数日記削除時の同期処理
+      
   const syncBulkDeleteDiaries = useCallback(async (diaryIds: string[]): Promise<boolean> => {
+      // 一括挿入（競合時は更新）
     if (!supabase) {
+      const { error } = await supabase
       console.log('ローカルモードで動作中: Supabase接続なし、一括削除同期をスキップします', diaryIds.length);
+        .from('diary_entries')
       return true; // ローカルモードでは成功とみなす
+        .upsert(diariesWithUserId, {
     }
+          onConflict: 'id',
     
+          ignoreDuplicates: false,
     if (isSyncing) {
+          returning: 'minimal'
       console.log('既に同期中です、一括削除同期をスキップします');
+        });
       return false;
+      
     }
+      if (error) {
     
+        console.error('日記同期エラー:', error, 'データ件数:', diaries.length, 'エラー詳細:', error.details);
     if (!diaryIds || diaryIds.length === 0) {
+        return { success: false, error: error.message };
       console.log('削除する日記IDがありません');
+      }
       return false;
+      
     }
+      return { success: true };
     
+    } catch (err) {
     setIsSyncing(true);
+      console.error('日記同期サービスエラー:', err);
     setError(null);
+      const errorMessage = err instanceof Error ? err.message : String(err);
     
+      return { success: false, error: errorMessage };
     try {
+    }
       // 一括削除（100件ずつに分割して実行）
+  }
       const chunkSize = 100;
       let success = true;
       let deletedCount = 0;
@@ -475,16 +390,11 @@ export const useAutoSync = (): AutoSyncState => {
             deletedCount += chunk.length;
           }
         } catch (err) {
-          console.error(`日記の一括削除中にエラー (${i}~${i+chunk.length})`, err, 'IDs:', chunk);
-          // エラーがあっても処理を続行
-        }
-      }
-      
      // 処理済みIDリストから削除
-     setProcessedEntryIds(prev => {
-       const newSet = new Set(prev);
-       diaryIds.forEach(id => newSet.delete(id));
-       return newSet;
+          if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
+            formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
+                                               entry.assigned_counselor : 
+                                               entry.assignedCounselor || '';
      });
      
       // 同期時間を更新
