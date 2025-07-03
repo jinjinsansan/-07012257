@@ -334,14 +334,6 @@ export const useAutoSync = (): AutoSyncState => {
           }
           
           // NULL値を空文字列に変換
-          if (formattedEntry.counselor_memo === null) {
-            formattedEntry.counselor_memo = '';
-          }
-          
-          if (formattedEntry.counselor_name === null) {
-            formattedEntry.counselor_name = '';
-          }
-          
           if (formattedEntry.urgency_level === null) {
             formattedEntry.urgency_level = '';
           }
