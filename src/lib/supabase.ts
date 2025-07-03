@@ -246,7 +246,7 @@ export const useAutoSync = (): AutoSyncState => {
           // 必須フィールドのみを含める
           const formattedEntry = {
             id: entryId,
-            user_id: userId, // 常に有効なuser_idを設定
+            user_id: userId,
             date: entry.date,
             emotion: entry.emotion,
             event: entry.event || '',
@@ -289,19 +289,26 @@ export const useAutoSync = (): AutoSyncState => {
           }
           
           // カウンセラーメモの処理
-          if (entry.counselor_memo !== undefined || entry.counselorMemo !== undefined) {
+          if (entry.counselor_memo !== undefined) {
+            formattedEntry.counselor_memo = entry.counselor_memo;
+          } else if (entry.counselorMemo !== undefined) {
+            formattedEntry.counselor_memo = entry.counselorMemo || '';
+          }
+          
           // 表示設定の処理
-          if (entry.is_visible_to_user !== undefined || entry.isVisibleToUser !== undefined) {
-            formattedEntry.is_visible_to_user = entry.is_visible_to_user !== undefined ? 
-                                               entry.is_visible_to_user : 
-                                               entry.isVisibleToUser || false;
+          if (entry.is_visible_to_user !== undefined) {
+            formattedEntry.is_visible_to_user = entry.is_visible_to_user;
+          } else if (entry.isVisibleToUser !== undefined) {
+            formattedEntry.is_visible_to_user = entry.isVisibleToUser;
+          } else {
+            formattedEntry.is_visible_to_user = false;
           }
           
           // カウンセラー名の処理
-          if (entry.counselor_name !== undefined || entry.counselorName !== undefined) {
-            formattedEntry.counselor_name = entry.counselor_name !== undefined ? 
-                                           entry.counselor_name : 
-                                           entry.counselorName || '';
+          if (entry.counselor_name !== undefined) {
+            formattedEntry.counselor_name = entry.counselor_name;
+          } else if (entry.counselorName !== undefined) {
+            formattedEntry.counselor_name = entry.counselorName;
           }
           
           // 担当カウンセラーの処理
@@ -318,10 +325,23 @@ export const useAutoSync = (): AutoSyncState => {
             formattedEntry.urgency_level = entry.urgencyLevel;
           }
           
+          // NULL値を空文字列に変換
+          if (formattedEntry.counselor_memo === null) {
+            formattedEntry.counselor_memo = '';
+          }
+          
           if (formattedEntry.counselor_name === null) {
-          if (entry.assigned_counselor !== undefined || entry.assignedCounselor !== undefined) {
-            formattedEntry.assigned_counselor = entry.assigned_counselor !== undefined ? 
+            formattedEntry.counselor_name = '';
+          }
+          
+          if (formattedEntry.assigned_counselor === null) {
+            formattedEntry.assigned_counselor = '';
+          }
+          
           if (formattedEntry.urgency_level === null) {
+            formattedEntry.urgency_level = '';
+          }
+          
           // is_visible_to_userがNULLの場合はfalseに設定
           if (formattedEntry.is_visible_to_user === null) {
             formattedEntry.is_visible_to_user = false;
