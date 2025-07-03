@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Users, AlertTriangle, Eye, Trash2, RefreshCw, Download, Search, Filter, Calendar, Lock, Unlock, UserX, Activity, BarChart3, TrendingUp, Clock, Database } from 'lucide-react';
-import { supabase } from './lib/supabase';
+import { supabase } from '../lib/supabase';
 import { 
   getAuthSession, 
   getUserCredentials, 
@@ -11,7 +11,7 @@ import {
   lockAccount,
   clearAuthSession,
   STORAGE_KEYS
-} from './lib/deviceAuth';
+} from '../lib/deviceAuth';
 
 interface DeviceAuthUser {
   lineUsername: string;

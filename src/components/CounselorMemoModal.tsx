@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Eye, EyeOff } from 'lucide-react';
-import { supabase } from './lib/supabase';
+import { supabase } from '../lib/supabase';
 
 interface CounselorMemoModalProps {
   diaryId: string;
