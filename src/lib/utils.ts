@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase, userService, diaryService } from '../lib/supabase';
-import { getCurrentUser } from '../lib/deviceAuth';
+import { supabase, userService, diaryService } from './supabase';
+import { getCurrentUser } from './deviceAuth';
 
 interface AutoSyncState {
   isAutoSyncEnabled: boolean;
